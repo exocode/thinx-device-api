@@ -11,6 +11,9 @@ ARG REVISION
 ARG ROLLBAR_ACCESS_TOKEN
 ARG ROLLBAR_ENVIRONMENT
 
+ARG ENVIRONMENT
+ENV ENVIRONMENT=${ENVIRONMENT}
+
 ARG DEBIAN_FRONTEND=noninteractive
 
 ARG NODE_ENV=production
@@ -43,8 +46,8 @@ RUN adduser --system --disabled-password --shell /bin/bash thinx
 RUN sh -c "echo 'Dir::Ignore-Files-Silently:: \"(.save|.distupgrade)$\";' > /etc/apt/apt.conf.d/99ignoresave"
 
 # RUN sed -i 's/main/main contrib non-free/g' /etc/apt/sources.list && \
-RUN apt-get update && \
-    apt-get install -y --fix-missing --no-install-recommends \
+RUN apt-get update -qq && \
+    apt-get install -qq -y --fix-missing --no-install-recommends \
     apt-transport-https \
     apt-utils \
     btrfs-progs \
@@ -71,17 +74,20 @@ RUN apt-get update && \
 
 # Install Docker Client only (Docker is on the host) - fails with /bin/sh not found...
 ENV VER="18.06.3-ce"
-RUN curl -v -L -o /tmp/docker-$VER.tgz https://download.docker.com/linux/static/stable/x86_64/docker-$VER.tgz
+RUN curl -sL -o /tmp/docker-$VER.tgz https://download.docker.com/linux/static/stable/x86_64/docker-$VER.tgz
 RUN tar -xz -C /tmp -f /tmp/docker-$VER.tgz && \
     rm -rf /tmp/docker-$VER.tgz
 RUN mv /tmp/docker/* /usr/bin
 
 # Install app dependencies
-COPY package*.json ./
+COPY package.json ./
 
 RUN openssl version \
  && node -v \
- && npm install --only-prod .
+ && npm install .
+
+# Test modules
+RUN npm install nyc mocha jasmine mocha-lcov-reporter coveralls codacy-coverage -g
 
 # set up subuid/subgid so that "--userns-remap=default" works out-of-the-box
 RUN set -x \
@@ -114,13 +120,17 @@ EXPOSE 9002
 # Copy app source code
 COPY . .
 
+RUN rm -rf ./.git
+
 # this should be generated/overwritten with sed on entrypoint, entrypoint needs /.first_run file and all ENV_VARS
-#COPY ./.thinx_env /.thinx_env
+COPY ./.thinx_env ./.thinx_env
 #COPY ./conf/.thx_prefix ./conf/.thx_prefix
 
 #ADD https://get.aquasec.com/microscanner .
 #RUN chmod +x microscanner
 #RUN ./microscanner ${AQUA_SEC_TOKEN} --continue-on-failure
+
+RUN mkdir -p ./.nyc_output
 
 COPY ./docker-entrypoint.sh /docker-entrypoint.sh
 
