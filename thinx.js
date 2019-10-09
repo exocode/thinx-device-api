@@ -7,6 +7,19 @@ console.log("--- " + new Date() + " ---");
 
 var Sqreen;
 
+if (Globals.use_sqreen()) {
+  if ((typeof(process.env.SQREEN_APP_NAME) !== "undefined") && (typeof(process.env.SQREEN_TOKEN) !== "undefined")) {
+    try {
+      Sqreen = require('sqreen');
+    } catch (bitch) {
+      console.log(bitch);
+    }
+  } else {
+    console.log("Sqreen env vars not available");
+ }
+}
+
+
 var exec = require("child_process"); // lgtm [js/unused-local-variable]
 var Rollbar = require("rollbar"); // lgtm [js/unused-local-variable]
 var crypto = require('crypto');
@@ -48,22 +61,6 @@ const hour = 3600 * 1000;
 const day = hour * 24;
 
 //
-// Environment-dependent configurations
-//
-
-if (Globals.use_sqreen()) {
-  if ((typeof(process.env.SQREEN_APP_NAME) !== "undefined") && (typeof(process.env.SQREEN_TOKEN) !== "undefined")) {
-    try {
-      Sqreen = require('sqreen');
-    } catch (bitch) {
-      console.log(bitch);
-    }
-  } else {
-    console.log("Sqreen env vars not available");
- }
-}
-
-//
 // App
 //
 
@@ -72,7 +69,6 @@ console.log("Initializing App consts...");
 var _ws = null;
 
 var db = app_config.database_uri;
-var serverPort = app_config.port;
 var socketPort = app_config.socket;
 
 var https = require("https");
@@ -199,7 +195,7 @@ function injectDesign(db, design, file) {
   console.log("Inserting design document " + design + " from path", file);
   let design_doc = getDocument(file);
   if (design_doc != null) {
-    console.log("Inserting design document", {design_doc});
+    //console.log("Inserting design document", {design_doc});
     db.insert(design_doc, "_design/" + design, function(err, body, header) {
       logCouchError(err, body, header, "init:design:"+design);
     });
@@ -212,7 +208,7 @@ function injectReplFilter(db, file) {
   console.log("Inserting filter document from path", file);
   let filter_doc = getDocument(file);
   if (filter_doc !== false) {
-    console.log("Inserting filter document", {filter_doc});
+    //console.log("Inserting filter document", {filter_doc});
     db.insert(filter_doc, "_design/repl_filters", function(err, body, header) {
       logCouchError(err, body, header, "init:repl:"+filter_doc);
     });
@@ -391,28 +387,26 @@ app.version = function() {
 
 var ssl_options = null;
 
-// disable HTTPS on CIRCLE CI
-if (typeof(process.env.CIRCLE_USERNAME) === "undefined") {
-  if ((fs.existsSync(app_config.ssl_key)) &&
-    (fs.existsSync(app_config.ssl_cert))) {
-    ssl_options = {
-      key: fs.readFileSync(app_config.ssl_key),
-      cert: fs.readFileSync(app_config.ssl_cert),
-      NPNProtocols: ['http/2.0', 'spdy', 'http/1.1', 'http/1.0']
-    };
-    console.log("» Starting HTTPS server on " + (serverPort + 1) + "...");
-    https.createServer(ssl_options, app).listen(serverPort + 1, "0.0.0.0", function() { } );
-  } else {
-    console.log(
-      "Skipping HTTPS server, SSL key or certificate not found.");
-  }
+// Legacy HTTP support for old devices without HTTPS proxy
+http.createServer(app).listen(app_config.port, "0.0.0.0", function() {
+  console.log("Legacy API started on port", app_config.port);
+});
+
+if ((fs.existsSync(app_config.ssl_key)) && (fs.existsSync(app_config.ssl_cert))) {
+  ssl_options = {
+    key: fs.readFileSync(app_config.ssl_key),
+    cert: fs.readFileSync(app_config.ssl_cert),
+    NPNProtocols: ['http/2.0', 'spdy', 'http/1.1', 'http/1.0']
+  };
+  console.log("» Starting HTTPS server on " + app_config.secure_port + "...");
+  https.createServer(ssl_options, app).listen(app_config.secure_port, "0.0.0.0", function() { } );
+} else {
+  console.log("Skipping HTTPS server, SSL key or certificate not found.");
 }
 
 app.use('/static', express.static(path.join(__dirname, 'static')));
 app.set('trust proxy', ['loopback', '127.0.0.1']);
 
-// Legacy HTTP support for old devices without HTTPS proxy
-http.createServer(app).listen(serverPort, "0.0.0.0", function() { });
 
 /*
  * WebSocket Server
